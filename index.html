@@ -315,22 +315,25 @@ select.pf{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
     <div class="pi" style="margin-bottom:12px;"><div class="pl">Current Ca <span class="pu">ppm</span></div><input class="pf" type="number" id="mr-ca2" placeholder="400" inputmode="decimal"></div>
     <hr class="divider">
     <div class="ct">Starting Dose Calculator</div>
-    <div class="twocol">
-      <div class="pi"><div class="pl">Tank Volume <span class="pu">gal</span></div><input class="pf" type="number" id="mr-vol" placeholder="75" inputmode="decimal" oninput="calcMR()"></div>
-      <div class="pi"><div class="pl">Coral Load</div>
-        <select class="pf" id="mr-load" onchange="calcMR()">
-          <option value="0.4">Light</option><option value="0.8" selected>Moderate</option>
-          <option value="1.4">Heavy SPS</option><option value="2.0">Ultra SPS</option>
-        </select>
-      </div>
+    <p style="font-size:11px;color:var(--ts);margin-bottom:12px;">Select your version then enter your tank size. Test KH daily and adjust by 0.5 mL per part every few days.</p>
+    <div style="display:flex;gap:8px;margin-bottom:12px;">
+      <button id="mr-btn-blue" class="btn bp" style="flex:1;font-size:11px;padding:9px;" onclick="setMRVersion('blue')">Blue Classic</button>
+      <button id="mr-btn-black" class="btn bs" style="flex:1;font-size:11px;padding:9px;border-color:#f0c030;color:#f0c030;" onclick="setMRVersion('black')">Black 7.7x</button>
     </div>
+    <div id="mr-version-note" style="font-size:11px;margin-bottom:12px;padding:8px 10px;border-radius:8px;background:var(--surface);color:var(--ts);border:1px solid var(--border);">Blue Classic: 10 mL per 100L raises 1 dKH — standard concentration.</div>
+    <div class="twocol" style="margin-bottom:10px;">
+      <div class="pi"><div class="pl">Tank Volume <span class="pu">gal</span></div><input class="pf" type="number" id="mr-vol" placeholder="75" inputmode="decimal" oninput="calcMR()"></div>
+      <div class="pi"><div class="pl">Current KH <span class="pu">dKH</span></div><input class="pf" type="number" id="mr-cur-kh" placeholder="8.0" step="0.1" inputmode="decimal" oninput="calcMR()"></div>
+    </div>
+    <div class="pi" style="margin-bottom:10px;"><div class="pl">Target KH <span class="pu">dKH</span></div><input class="pf" type="number" id="mr-tgt-kh" placeholder="8.0" step="0.1" value="8.0" inputmode="decimal" oninput="calcMR()"></div>
     <div id="mr-res" style="display:none;margin-top:12px;">
       <div class="dr">
-        <div class="drt">ESTIMATED STARTING DOSE — EACH OF ALL 4 PARTS</div>
-        <div class="di"><span class="dn">Per part (equal)</span><span class="da" id="mr-rml">—</span></div>
-        <div class="di"><span class="dn">Total daily volume</span><span class="da" id="mr-rtot">—</span></div>
+        <div class="drt" id="mr-res-title">STARTING DOSE — BLUE CLASSIC — EACH OF ALL 4 PARTS</div>
+        <div class="di"><span class="dn">Maintenance dose per part</span><span class="da" id="mr-rml">—</span></div>
+        <div class="di"><span class="dn">Total daily (all 4 parts)</span><span class="da" id="mr-rtot">—</span></div>
+        <div class="di" id="mr-raise-row" style="display:none;"><span class="dn">One-time raise dose per part</span><span class="da" id="mr-raise">—</span></div>
       </div>
-      <div class="ob">Start at 50%. Increase 1–2 mL every 3–4 days. Test KH daily for first 2 weeks.</div>
+      <div class="ob" id="mr-advice">Start at the low end and increase slowly while testing KH daily.</div>
     </div>
     <div class="br"><button class="btn bm" onclick="saveMR()" style="flex:1;">Log This Dose</button></div>
   </div>
@@ -748,13 +751,88 @@ function calcDose(){
 }
 
 // ---- MODERN REEF ----
+let mrVersion = "blue"; // blue = classic, black = 7.7x
+
+function setMRVersion(v){
+  mrVersion = v;
+  const btnBlue  = document.getElementById("mr-btn-blue");
+  const btnBlack = document.getElementById("mr-btn-black");
+  const note     = document.getElementById("mr-version-note");
+  if(v === "blue"){
+    btnBlue.className  = "btn bp";
+    btnBlack.className = "btn bs";
+    note.textContent   = "Blue Classic: 10 mL × 100L raises 1 dKH — standard concentration.";
+  } else {
+    btnBlue.className  = "btn bs";
+    btnBlack.className = "btn bp";
+    btnBlack.style.background = "linear-gradient(135deg,#2a2a2a,#111)";
+    btnBlack.style.color = "#f0c030";
+    btnBlack.style.border = "1px solid #f0c030";
+    note.textContent   = "Black 7.7x: 10 mL × 100L raises 2 dKH — 7.7x more concentrated, much lower doses needed.";
+    note.style.borderColor = "var(--gold)";
+    note.style.color = "var(--gold)";
+  }
+  calcMR();
+}
+
 function calcMR(){
-  const vol=g("mr-vol"),load=parseFloat(document.getElementById("mr-load").value)||0.8;
-  if(!vol)return;
-  const L=vol*3.785,daily=((2.5*load)*(L/100)).toFixed(1);
-  document.getElementById("mr-rml").textContent=daily+" mL each";
-  document.getElementById("mr-rtot").textContent=(parseFloat(daily)*4).toFixed(1)+" mL total";
-  document.getElementById("mr-res").style.display="block";
+  const vol = g("mr-vol");
+  const curKH = g("mr-cur-kh");
+  const tgtKH = g("mr-tgt-kh") || 8.0;
+  if(!vol) return;
+
+  const L = vol * 3.785;
+
+  // Maintenance dose calculation
+  // Blue classic:  2.5–5 mL per 100L starting point  (raises 1 dKH per 10mL/100L)
+  // Black 7.7x:    divide by 7.7  → 0.32–0.65 mL per 100L  (raises 2 dKH per 10mL/100L)
+  let maintLow, maintHigh, raiseFactor;
+  if(mrVersion === "blue"){
+    maintLow   = (2.5 * L / 100);
+    maintHigh  = (5.0 * L / 100);
+    raiseFactor = 1.78; // mL per 100L to raise 1 dKH (blue: 10mL/100L = 1dKH, so 1dKH = 10mL/100L, per L = 0.1mL)
+  } else {
+    maintLow   = (2.5 / 7.7 * L / 100);
+    maintHigh  = (5.0 / 7.7 * L / 100);
+    raiseFactor = 1.78 / 7.7;
+  }
+
+  // Start recommendation: low end of range
+  const startDose = maintLow.toFixed(1);
+  const totalDaily = (maintLow * 4).toFixed(1);
+
+  // One-time raise dose if KH needs correcting
+  const khDiff = tgtKH - (curKH || tgtKH);
+  let raiseDose = 0;
+  if(khDiff > 0.1){
+    // mL needed per part to raise by khDiff
+    // Blue:  10mL/100L = 1dKH  → per liter = 0.1mL per dKH
+    // Black: 10mL/100L = 2dKH  → per liter = 0.05mL per dKH
+    const mlPerLPerDKH = mrVersion === "blue" ? 0.1 : 0.05;
+    raiseDose = (khDiff * mlPerLPerDKH * L / 4).toFixed(1); // divide by 4 because all 4 raise together
+  }
+
+  const vName = mrVersion === "blue" ? "BLUE CLASSIC" : "BLACK 7.7x";
+  document.getElementById("mr-res-title").textContent = "STARTING DOSE — " + vName + " — EACH OF ALL 4 PARTS";
+  document.getElementById("mr-rml").textContent  = startDose + " mL each (range: " + maintLow.toFixed(1) + "–" + maintHigh.toFixed(1) + " mL)";
+  document.getElementById("mr-rtot").textContent = totalDaily + " mL total/day";
+
+  const raiseRow = document.getElementById("mr-raise-row");
+  if(khDiff > 0.1 && raiseDose > 0){
+    document.getElementById("mr-raise").textContent = raiseDose + " mL each (to raise " + khDiff.toFixed(1) + " dKH)";
+    raiseRow.style.display = "flex";
+  } else {
+    raiseRow.style.display = "none";
+  }
+
+  const advice = document.getElementById("mr-advice");
+  if(mrVersion === "black"){
+    advice.textContent = "7.7x is very concentrated — start at the low end (" + maintLow.toFixed(1) + " mL each) and increase by 0.5 mL per part every 3–4 days. Test KH daily with a Hanna Checker for accuracy.";
+  } else {
+    advice.textContent = "Start at " + startDose + " mL per part. Increase by 1–2 mL per part every 3–4 days until KH is stable. Test KH daily for first 2 weeks.";
+  }
+
+  document.getElementById("mr-res").style.display = "block";
 }
 function syncMR(){
   const ml=g("mr-ml");if(!ml)return;
