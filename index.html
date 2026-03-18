@@ -853,15 +853,35 @@ function renderMRLog(){
   document.getElementById("mr-tank-name").textContent=activeTank()?.name||"";
   const mr=getMR(activeTankId);
   const el=document.getElementById("mr-log");
+
+  // Always update display boxes with most recent dose
+  if(mr.length){
+    const last=mr[0];
+    ["mr-d1","mr-d2","mr-d3","mr-d4"].forEach(id=>document.getElementById(id).textContent=last.ml+"mL");
+    // Also show last KH/Ca in the log inputs as hints
+    if(last.kh) document.getElementById("mr-kh").placeholder=last.kh+" (last)";
+    if(last.ca) document.getElementById("mr-ca2").placeholder=last.ca+" (last)";
+  } else {
+    ["mr-d1","mr-d2","mr-d3","mr-d4"].forEach(id=>document.getElementById(id).textContent="—");
+  }
+
   if(!mr.length){el.innerHTML='<div class="empty">No doses logged yet for this tank.</div>';return;}
-  el.innerHTML=mr.slice(0,20).map(d=>`<div class="lg"><div class="ld">${d.date}</div><div class="lp">
+  el.innerHTML=mr.slice(0,20).map((d,i)=>`<div class="lg"><div class="ld">${d.date}</div><div class="lp">
     <div class="lc" style="border-left:2px solid #48c0c0;">KH1 <span class="v">${d.ml}mL</span></div>
     <div class="lc" style="border-left:2px solid #48c0d8;">KH2 <span class="v">${d.ml}mL</span></div>
     <div class="lc" style="border-left:2px solid #f0c030;">CAL <span class="v">${d.ml}mL</span></div>
     <div class="lc" style="border-left:2px solid #f060a8;">MAG <span class="v">${d.ml}mL</span></div>
     ${d.kh?`<div class="lc">KH <span class="v">${d.kh}dKH</span></div>`:""}
     ${d.ca?`<div class="lc">Ca <span class="v">${d.ca}ppm</span></div>`:""}
-  </div></div>`).join("");
+  </div><div style="text-align:right;margin-top:5px;"><button class="btn bd" onclick="delMREntry(${i})">Delete</button></div></div>`).join("");
+}
+
+function delMREntry(i){
+  if(!confirm("Delete this dose entry?"))return;
+  const mr=getMR(activeTankId);
+  mr.splice(i,1);
+  saveMRData(activeTankId,mr);
+  renderMRLog();
 }
 
 // ---- ICP ----
